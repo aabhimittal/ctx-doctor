@@ -22,13 +22,13 @@ export function formatAblation(run, { color = true } = {}) {
   out.push('');
 
   const width = Math.min(38, Math.max(12, ...run.results.map((r) => r.id.length)));
-  out.push(s.gray(`  ${'rule'.padEnd(width)}  ${'with'.padStart(7)}  ${'without'.padStart(7)}  ${'delta'.padStart(14)}  verdict`));
+  out.push(s.gray(`  ${'rule'.padEnd(width)}  ${'with'.padStart(7)}  ${'without'.padStart(7)}  ${'delta'.padStart(14)}  ${'p(adj)'.padStart(8)}  verdict`));
 
   for (const r of run.results) {
     const v = VERDICT[r.verdict];
     const tone = s[v.tone] ?? s.gray;
     const delta = `${r.diff.delta >= 0 ? '+' : ''}${r.diff.delta.toFixed(2)} ±${r.diff.half.toFixed(2)}`;
-    out.push(`  ${r.id.slice(0, width).padEnd(width)}  ${rate(r.with).padStart(7)}  ${rate(r.without).padStart(7)}  ${delta.padStart(14)}  ${tone(v.label)}`);
+    out.push(`  ${r.id.slice(0, width).padEnd(width)}  ${rate(r.with).padStart(7)}  ${rate(r.without).padStart(7)}  ${delta.padStart(14)}  ${fmtP(r.adjustedP).padStart(8)}  ${tone(v.label)}`);
   }
 
   out.push('');
@@ -50,6 +50,9 @@ export function formatAblation(run, { color = true } = {}) {
   }
 
   out.push('');
+  out.push(s.dim(`  p(adj) is Holm-Bonferroni across all ${run.results.length} rules: they share one control arm, so`));
+  out.push(s.dim('  this is a family of tests, and an uncorrected 95% interval per rule would expect'));
+  out.push(s.dim(`  ${(100 * (1 - 0.95 ** run.results.length)).toFixed(0)}% odds of at least one inert rule looking significant. "Carries weight" needs both.`));
   out.push(s.dim('  Each arm deletes exactly one rule, so a delta is attributable to that rule alone.'));
   out.push(s.dim('  Rules that only work in combination will not show up; neither will effects on output'));
   out.push(s.dim('  quality, which this measures nothing about — only compliance with the rule itself.'));
@@ -65,6 +68,12 @@ export function ablationHeadline(run) {
   const dead = run.results.filter((r) => r.verdict === 'no-effect').length;
   const carrying = run.results.filter((r) => r.verdict === 'carries-weight').length;
   return `${run.results.length} rules measured: ${carrying} changed the model's behaviour, ${dead} did nothing at all (${run.trials} trials/arm, ${run.model}).`;
+}
+
+function fmtP(p) {
+  if (p == null) return '—';
+  if (p < 0.001) return '<0.001';
+  return p.toFixed(3);
 }
 
 function rate(arm) {

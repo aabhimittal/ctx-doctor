@@ -184,3 +184,88 @@ test('cli: --init scaffolds, --dry-run prices, and nothing runs without --yes', 
   const refused = run(['--no-color'], true);
   assert.match(refused, /not running/);
 });
+
+test('cost estimate matches the call arithmetic it promises', () => {
+  const spec = {
+    tasks: [{ id: 't1', prompt: 'x' }, { id: 't2', prompt: 'y' }],
+    rules: [
+      { id: 'a', match: 'Never add comments', check: { notRegex: '//' } },
+      { id: 'b', match: 'Write clean, maintainable code', check: null },
+    ],
+  };
+  const trials = 5;
+  const plan = buildPlan({ source: INSTRUCTIONS, spec, trials });
+  const est = estimatePlan({ plan, inputRate: 5, outputRate: 25, judgeInputRate: 2, judgeOutputRate: 10 });
+
+  const perArm = spec.tasks.length * trials;          // 10
+  const judged = spec.rules.filter((r) => !r.check).length; // 1
+  assert.equal(est.generateCalls, (spec.rules.length + 1) * perArm);
+  // Each full-arm output is graded once per judged rule: hence the factor of two.
+  assert.equal(est.judgeCalls, 2 * judged * perArm);
+  assert.equal(est.calls, est.generateCalls + est.judgeCalls);
+});
+
+test('cost estimate stays right when every rule is judged', () => {
+  const spec = {
+    tasks: [{ id: 't1', prompt: 'x' }],
+    rules: [
+      { id: 'a', match: 'Never add comments', check: null },
+      { id: 'b', match: 'Write clean, maintainable code', check: null },
+    ],
+  };
+  const plan = buildPlan({ source: INSTRUCTIONS, spec, trials: 4 });
+  const est = estimatePlan({ plan, inputRate: 5, outputRate: 25, judgeInputRate: 2, judgeOutputRate: 10 });
+  assert.equal(est.judgeCalls, 2 * 2 * 4);
+  assert.equal(est.calls, 3 * 4 + 16);
+});
+
+test('Holm correction holds back a rule that only looks significant', async () => {
+  const { holm, twoProportionP, verdict, diffProportions } = await import('../src/ablate/stats.js');
+  // One genuine effect, nine coin flips that each landed slightly off.
+  const cells = [[20, 20, 2, 20], ...Array.from({ length: 9 }, () => [13, 20, 8, 20])];
+  const ps = cells.map(([a, na, b, nb]) => twoProportionP(a, na, b, nb));
+  const adj = holm(ps);
+  assert.equal(adj[0].significant, true, 'the real effect survives correction');
+  assert.equal(adj[1].significant, false, 'a marginal one does not');
+  // And the verdict follows the correction, not the raw interval.
+  const d = diffProportions(...cells[1]);
+  assert.notEqual(verdict(d, { significant: false }), 'carries-weight');
+});
+
+test('the task suffix is overridable, since it competes with the rules', async () => {
+  const { DEFAULT_TASK_SUFFIX } = await import('../src/ablate/index.js');
+  assert.match(DEFAULT_TASK_SUFFIX, /Do not explain/);
+  const { server, url } = await stubServer();
+  const prev = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = url;
+  try {
+    const run = await runAblation({
+      source: INSTRUCTIONS, spec: SPEC, trials: 2, apiKey: 'k', suffix: '', concurrency: 4,
+    });
+    assert.equal(run.suffix, '');
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_BASE_URL; else process.env.ANTHROPIC_BASE_URL = prev;
+    server.close();
+  }
+});
+
+test('live-only subcommands refuse cleanly with no API key', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-live-'));
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), INSTRUCTIONS);
+  const cli = new URL('../bin/cli.js', import.meta.url).pathname;
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  for (const flag of ['--check', '--calibrate']) {
+    const r = spawnSync(process.execPath, [cli, 'ablate', flag], { cwd: dir, encoding: 'utf8', env });
+    assert.equal(r.status, 2, `${flag}: ${r.stderr}`);
+    assert.match(r.stderr, /ANTHROPIC_API_KEY/);
+  }
+});
+
+test('every emitted rule id is listed by --list-rules', async () => {
+  const { RULE_IDS } = await import('../src/index.js');
+  const listed = new Set(RULE_IDS.map(([id]) => id));
+  for (const id of ['repo/cross-file', 'logic/contradiction', 'style/persona']) {
+    assert.ok(listed.has(id), `${id} missing from RULE_IDS`);
+  }
+});
