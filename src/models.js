@@ -7,14 +7,19 @@
 // on the harness, so ctx-doctor reports both the cached and uncached figure.
 export const CACHE_READ_MULTIPLIER = 0.1;
 
+// `output` and `effort` are used only by the ablation harness, which actually
+// calls the API; the linter itself is input-only and never sends a request.
 export const MODELS = {
-  'claude-opus-5': { label: 'Claude Opus 5', input: 5.0 },
-  'claude-opus-4-8': { label: 'Claude Opus 4.8', input: 5.0 },
-  'claude-sonnet-5': { label: 'Claude Sonnet 5', input: 2.0 },
-  'claude-sonnet-4-6': { label: 'Claude Sonnet 4.6', input: 3.0 },
-  'claude-haiku-4-5': { label: 'Claude Haiku 4.5', input: 1.0 },
-  'claude-fable-5-1': { label: 'Claude Fable 5.1', input: 10.0 },
+  'claude-opus-5': { label: 'Claude Opus 5', input: 5.0, output: 25.0, effort: true },
+  'claude-opus-4-8': { label: 'Claude Opus 4.8', input: 5.0, output: 25.0, effort: true },
+  'claude-sonnet-5': { label: 'Claude Sonnet 5', input: 2.0, output: 10.0, effort: true },
+  'claude-sonnet-4-6': { label: 'Claude Sonnet 4.6', input: 3.0, output: 15.0, effort: true },
+  'claude-haiku-4-5': { label: 'Claude Haiku 4.5', input: 1.0, output: 5.0, effort: false },
+  'claude-fable-5-1': { label: 'Claude Fable 5.1', input: 10.0, output: 50.0, effort: true },
 };
+
+/** Default grader. Cheap, and grading one rule against one output is not the hard part. */
+export const DEFAULT_JUDGE_MODEL = 'claude-sonnet-5';
 
 export const DEFAULT_MODEL = 'claude-opus-5';
 

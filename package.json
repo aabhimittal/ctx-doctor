@@ -1,9 +1,10 @@
 {
-  "name": "ctx-doctor",
-  "version": "0.1.0",
-  "description": "Static linter for agent instruction files (AGENTS.md, CLAUDE.md, .cursorrules): token budget and per-session cost, rules that only restate what the repo already shows, internal contradictions, and a minimized rewrite with a diff.",
+  "name": "agentsmd-doctor",
+  "version": "0.2.0",
+  "description": "Tells you what your AGENTS.md costs per session, where it contradicts itself, and — with an ablation run — which of its rules actually change the model's behaviour.",
   "type": "module",
   "bin": {
+    "agentsmd-doctor": "bin/cli.js",
     "ctx-doctor": "bin/cli.js"
   },
   "exports": {
@@ -16,6 +17,9 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
@@ -31,6 +35,7 @@
     "prompt",
     "context",
     "tokens",
+    "ablation",
     "ai-agents"
   ],
   "license": "MIT",

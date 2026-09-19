@@ -51,6 +51,35 @@ export function formatResult(result, { color = true, verbose = false } = {}) {
   return out.join('\n');
 }
 
+/**
+ * The claim you can make about someone's file without citing anything: what it
+ * costs, and how many times it disagrees with itself. Both are checkable by
+ * reading the file.
+ */
+export function headline(result) {
+  const b = result.budget;
+  const count = (rule) => result.findings.filter((f) => f.rule === rule).length;
+  const parts = [`costs $${b.costPerSession.toFixed(3)} per ${b.turns}-turn session`];
+
+  const contradictions = count('logic/contradiction');
+  if (contradictions) parts.push(`contradicts itself in ${contradictions} place${contradictions === 1 ? '' : 's'}`);
+
+  const dangling = count('logic/unsatisfiable');
+  if (dangling) parts.push(`points at ${dangling} file${dangling === 1 ? '' : 's'} that ${dangling === 1 ? 'does' : 'do'} not exist`);
+
+  const pct = result.tokensBefore ? Math.round((result.tokensSaved / result.tokensBefore) * 100) : 0;
+  if (pct >= 5) parts.push(`and ${pct}% of it is removable`);
+
+  return `${result.file} (~${result.tokensBefore.toLocaleString('en-US')} tokens) ${joinClauses(parts)}.`;
+}
+
+function joinClauses(parts) {
+  if (parts.length <= 1) return parts.join('');
+  const last = parts[parts.length - 1];
+  const head = parts.slice(0, -1).join(', ');
+  return last.startsWith('and ') ? `${head}, ${last}` : `${head} and ${last}`;
+}
+
 export function formatSummary(results, { color = true } = {}) {
   const s = makeStyle(color);
   const totals = results.reduce((acc, r) => {

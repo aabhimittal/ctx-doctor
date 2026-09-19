@@ -7,6 +7,7 @@ Lint this file with `node bin/cli.js --fail-on warn` before committing changes t
 - No runtime dependencies, ever. `package.json` must have no `dependencies` block.
 - No build step: `bin/cli.js` runs the sources in `src/` directly.
 - Node 18 is the floor. Do not use APIs newer than that.
+- Only `src/ablate/` may make network calls, and only when the user passes `--yes`.
 
 ## Adding a rule
 
@@ -22,3 +23,10 @@ Lint this file with `node bin/cli.js --fail-on warn` before committing changes t
 
 - Prefer a missed finding over a false one. A linter that cries wolf gets turned off.
 - Widen a pattern only with a test for the case that made you widen it.
+
+## Measurement
+
+- Never report a wide confidence interval as evidence of no effect. `inconclusive`
+  and `no-effect` are different verdicts and must stay that way.
+- The judge sees one rule and one output, never which arm produced it.
+- Tests for network code run against a local stub over `ANTHROPIC_BASE_URL`.
