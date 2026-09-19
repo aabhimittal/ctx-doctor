@@ -1,0 +1,45 @@
+{
+  "name": "ctx-doctor",
+  "version": "0.1.0",
+  "description": "Static linter for agent instruction files (AGENTS.md, CLAUDE.md, .cursorrules): token budget and per-session cost, rules that only restate what the repo already shows, internal contradictions, and a minimized rewrite with a diff.",
+  "type": "module",
+  "bin": {
+    "ctx-doctor": "bin/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "selfcheck": "node bin/cli.js --fail-on warn"
+  },
+  "keywords": [
+    "agents.md",
+    "claude.md",
+    "cursorrules",
+    "copilot-instructions",
+    "linter",
+    "llm",
+    "prompt",
+    "context",
+    "tokens",
+    "ai-agents"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aabhimittal/ctx-doctor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aabhimittal/ctx-doctor/issues"
+  },
+  "homepage": "https://github.com/aabhimittal/ctx-doctor#readme"
+}
