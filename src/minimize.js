@@ -52,16 +52,8 @@ export function minimize(source, blocks, findings) {
     }
   }
 
-  const kept = lines.filter((_, idx) => !drop.has(idx + 1));
-  const collapsed = [];
-  for (const line of kept) {
-    if (line.trim() === '' && collapsed.length && collapsed[collapsed.length - 1].trim() === '') continue;
-    collapsed.push(line);
-  }
-  while (collapsed.length && collapsed[collapsed.length - 1].trim() === '') collapsed.pop();
-
   return {
-    text: collapsed.length ? `${collapsed.join('\n')}\n` : '',
+    text: dropLines(source, drop),
     removedBlocks: removedBlocks.size,
     removedLines: drop.size,
     manual,
@@ -73,4 +65,21 @@ function coversWholeBlock(block, blockFindings) {
   if (!sentences.length) return true;
   const flagged = new Set(blockFindings.map((f) => plain(f.excerpt ?? '')));
   return sentences.every((s) => flagged.has(s));
+}
+
+/**
+ * Remove a set of 1-indexed lines and tidy up what that leaves behind.
+ * Shared by the minimizer and the ablation harness, which removes one rule at
+ * a time the same way so that the arm it measures is the file a reader would
+ * have written without that rule.
+ */
+export function dropLines(source, drop) {
+  const kept = source.split('\n').filter((_, idx) => !drop.has(idx + 1));
+  const collapsed = [];
+  for (const line of kept) {
+    if (line.trim() === '' && collapsed.length && collapsed[collapsed.length - 1].trim() === '') continue;
+    collapsed.push(line);
+  }
+  while (collapsed.length && collapsed[collapsed.length - 1].trim() === '') collapsed.pop();
+  return collapsed.length ? `${collapsed.join('\n')}\n` : '';
 }

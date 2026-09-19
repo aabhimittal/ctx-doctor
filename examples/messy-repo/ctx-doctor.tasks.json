@@ -1,0 +1,50 @@
+{
+  "_README": [
+    "Ablation spec for AGENTS.md. Run: ctx-doctor ablate --root examples/messy-repo --trials 22 --yes",
+    "tasks: real jobs you give the agent. Three to five beats one.",
+    "rules: each is deleted from the file in turn and measured on its own.",
+    "  match  - a substring of the rule as written in the file",
+    "  check  - optional deterministic grade; keys: contains, notContains, regex, notRegex, applies, flags",
+    "           leave null to have a separate model grade it, shown only the rule and the output"
+  ],
+  "tasks": [
+    {
+      "id": "health-endpoint",
+      "prompt": "Add a GET /health endpoint to src/server.ts that returns {status:'ok'} and the process uptime."
+    },
+    {
+      "id": "retry-helper",
+      "prompt": "Write a retryWithBackoff helper in src/db.ts that retries a failing query up to 3 times with exponential backoff."
+    },
+    {
+      "id": "parse-pagination",
+      "prompt": "Add a function to src/index.ts that parses ?page= and ?limit= query params, with sensible defaults and validation."
+    }
+  ],
+  "rules": [
+    {
+      "id": "jsdoc-on-exports",
+      "match": "Always add JSDoc comments to exported functions",
+      "check": { "regex": "/\\*\\*" }
+    },
+    {
+      "id": "no-comments",
+      "match": "Never add comments",
+      "check": { "notRegex": "(^|\\s)//" }
+    },
+    {
+      "id": "line-length-80",
+      "match": "Keep line length under 80 characters",
+      "check": { "notRegex": "^.{81,}$", "flags": "m" }
+    },
+    {
+      "id": "indent-2-spaces",
+      "match": "Indent with 2 spaces",
+      "check": { "notRegex": "^(    | *\\t)", "flags": "m" }
+    },
+    { "id": "write-clean-code", "match": "Write clean, maintainable code", "check": null },
+    { "id": "follow-best-practices", "match": "Follow best practices", "check": null },
+    { "id": "always-write-tests", "match": "Always write tests for new behaviour", "check": null },
+    { "id": "persona", "match": "You are an expert senior TypeScript engineer", "check": null }
+  ]
+}

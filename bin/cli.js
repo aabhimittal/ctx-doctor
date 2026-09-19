@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { analyzeFiles, discoverTargets, RULE_IDS } from '../src/index.js';
-import { formatResult, formatSummary, makeStyle } from '../src/report.js';
+import { formatResult, formatSummary, headline, makeStyle } from '../src/report.js';
 import { unifiedDiff } from '../src/diff.js';
 import { MODELS, DEFAULT_MODEL, BUDGETS } from '../src/models.js';
 
@@ -11,6 +11,7 @@ const HELP = `ctx-doctor — static linter for agent instruction files
 
   Usage
     ctx-doctor [files...] [options]
+    ctx-doctor ablate [file] [options]   measure which rules actually change behaviour
 
   With no files, lints every instruction file it finds in the repo
   (AGENTS.md, CLAUDE.md, .cursorrules, .github/copilot-instructions.md, ...).
@@ -20,6 +21,7 @@ const HELP = `ctx-doctor — static linter for agent instruction files
     --model <id>       pricing model                       (default: ${DEFAULT_MODEL})
     --turns <n>        turns per session for cost math     (default: 25)
     --budget <n>       token budget before warning         (default: ${BUDGETS.warn})
+    --headline         print only the one-line summary, for sharing or CI
     --diff             print the minimized file as a unified diff
     --fix              write the minimized file in place
     --json             machine-readable output
@@ -35,10 +37,17 @@ const HELP = `ctx-doctor — static linter for agent instruction files
 `;
 
 const argv = process.argv.slice(2);
+
+// Subcommand: everything after `ablate` belongs to it.
+if (argv[0] === 'ablate') {
+  const { ablateCommand } = await import('../src/ablate/cli.js');
+  process.exit(await ablateCommand(argv.slice(1)));
+}
+
 const opts = {
   files: [], root: process.cwd(), model: DEFAULT_MODEL, turns: 25,
   budget: undefined, diff: false, fix: false, json: false, ignore: [],
-  failOn: 'error', scan: true, verbose: false,
+  failOn: 'error', scan: true, verbose: false, headline: false,
   color: process.stdout.isTTY && !process.env.NO_COLOR,
 };
 
@@ -56,6 +65,7 @@ for (let i = 0; i < argv.length; i++) {
     case '--model': opts.model = next(); break;
     case '--turns': opts.turns = Number(next()); break;
     case '--budget': opts.budget = Number(next()); break;
+    case '--headline': opts.headline = true; break;
     case '--diff': opts.diff = true; break;
     case '--fix': opts.fix = true; break;
     case '--json': opts.json = true; opts.color = false; break;
@@ -123,6 +133,8 @@ if (opts.json) {
       })),
     })),
   }, null, 2)}\n`);
+} else if (opts.headline) {
+  for (const r of results) process.stdout.write(`${headline(r)}\n`);
 } else {
   for (const r of results) process.stdout.write(`${formatResult(r, { color: opts.color, verbose: opts.verbose })}\n`);
   if (opts.diff) {
