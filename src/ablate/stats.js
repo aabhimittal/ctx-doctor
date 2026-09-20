@@ -47,9 +47,53 @@ export function diffProportions(withSucc, withN, withoutSucc, withoutN, z = Z) {
  *   practically meaningful effect would have shown up.
  * - `inconclusive`: the interval contains zero and is too wide to conclude.
  */
-export function verdict(diff, meaningful = 0.15) {
-  if (diff.decided) return diff.delta > 0 ? 'carries-weight' : 'harmful';
+export function verdict(diff, { meaningful = 0.15, significant = diff.decided } = {}) {
+  // Conservative by construction: a rule "carries weight" only if the interval
+  // excludes zero AND it survives the family-wise correction below.
+  if (diff.decided && significant) return diff.delta > 0 ? 'carries-weight' : 'harmful';
   return diff.half <= meaningful ? 'no-effect' : 'inconclusive';
+}
+
+/** Normal CDF (Abramowitz & Stegun 7.1.26); no dependency, ~1e-7 accurate. */
+export function normalCdf(z) {
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+/** Two-sided p for a pooled two-proportion z-test. */
+export function twoProportionP(aSucc, aN, bSucc, bN) {
+  if (!aN || !bN) return 1;
+  const pooled = (aSucc + bSucc) / (aN + bN);
+  const se = Math.sqrt(pooled * (1 - pooled) * (1 / aN + 1 / bN));
+  if (se === 0) return aSucc / aN === bSucc / bN ? 1 : 0;
+  const z = (aSucc / aN - bSucc / bN) / se;
+  return 2 * (1 - normalCdf(Math.abs(z)));
+}
+
+/**
+ * Holm-Bonferroni across the rules in one run.
+ *
+ * Every rule is tested against the SAME control arm, so a run of n rules is n
+ * hypothesis tests. At 95% each, eight rules carry a ~34% chance that at least
+ * one inert rule looks significant. Holm fixes the family-wise error rate
+ * without assuming the tests are independent — which, sharing a control, they
+ * are not.
+ *
+ * @returns {{p:number, adjusted:number, significant:boolean}[]} in input order
+ */
+export function holm(pValues, alpha = 0.05) {
+  const m = pValues.length;
+  const order = pValues.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p);
+  const out = new Array(m);
+  let running = 0;
+  order.forEach(({ p, i }, rank) => {
+    running = Math.min(1, Math.max(running, p * (m - rank)));
+    out[i] = { p, adjusted: running, significant: running <= alpha };
+  });
+  return out;
 }
 
 /**

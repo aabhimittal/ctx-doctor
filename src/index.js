@@ -20,6 +20,7 @@ export const RULE_IDS = [
   ['repo/structure', 'Describes a layout the agent can see by listing the tree.'],
   ['repo/stack', 'Names tools already visible from config files and the manifest.'],
   ['repo/obvious', 'Restates license or README trivia.'],
+  ['repo/cross-file', 'Two instruction files in one repo restating each other.'],
   ['logic/contradiction', 'Two rules that cannot both be satisfied.'],
   ['logic/unsatisfiable', 'Points at a file or directory that does not exist.'],
   ['style/duplicate', 'Same rule stated twice.'],

@@ -114,10 +114,10 @@ yours is precisely the error this subcommand exists to prevent.
 ablation  3 rules × 1 task × 22 trials/arm
   model claude-opus-5 · judge claude-sonnet-5 · 88 calls · $0.31 spent
 
-  rule                 with  without           delta  verdict
-  no-comments         22/22     0/22     +1.00 ±0.14  carries weight
-  write-clean-code    22/22    22/22     +0.00 ±0.14  no measurable effect
-  persona             22/22    22/22     +0.00 ±0.14  no measurable effect
+  rule                 with  without           delta    p(adj)  verdict
+  no-comments         22/22     0/22     +1.00 ±0.14    <0.001  carries weight
+  write-clean-code    22/22    22/22     +0.00 ±0.14     1.000  no measurable effect
+  persona             22/22    22/22     +0.00 ±0.14     1.000  no measurable effect
 
   1 of 3 rules measurably changed compliance.
   2 had no measurable effect at ±0.15 — deleting them is free
@@ -129,6 +129,12 @@ Design decisions that matter for whether you believe the numbers:
   deleted block, so a delta is attributable. Measuring every subset would be
   2ⁿ runs; this is n+1. The cost is that rules which only matter *together* are
   invisible, and the report says so.
+- **Corrected for multiple comparisons.** Every rule is tested against the
+  *same* control arm, so a run of n rules is a family of n hypothesis tests,
+  not n independent ones. Uncorrected, eight rules carry a ~34% chance that at
+  least one inert rule clears 95%. `p(adj)` is Holm-Bonferroni across the run,
+  and `carries weight` requires both the interval to exclude zero and the
+  corrected p to hold.
 - **Three verdicts, not two.** `carries-weight`, `no-effect`, and
   `inconclusive` are distinct. A wide interval around zero means *you did not
   run enough trials* — it is never reported as evidence the rule is useless.
@@ -139,8 +145,15 @@ Design decisions that matter for whether you believe the numbers:
   rule and one output and never learns which arm produced it.
 - **`na` is not a violation.** An output that had no occasion to apply the rule
   is dropped from the denominator rather than scored against it.
-- **Nothing runs without `--yes`.** The estimated cost is printed first, every
-  time.
+- **Nothing runs without `--yes`.** The estimated cost is printed first, and it
+  is exact call arithmetic: `(rules + 1) x tasks x trials` generations plus
+  `2 x judged_rules x tasks x trials` gradings. The factor of two is the shared
+  control — each intact-file output is graded once per judged rule.
+- **The prompt suffix is visible and overridable.** Every task prompt gets
+  `"Reply with the code or answer only. Do not explain what you did."` appended
+  so answers stay comparable. That is itself an instruction, and it competes
+  with any rule about explaining or commenting — set `suffix` in the task file,
+  or pass `--no-suffix`, when a rule under test is about verbosity.
 
 What it does **not** measure: output quality. It measures compliance with each
 rule, which is the question "is this line doing anything?" — not "is my agent
@@ -192,6 +205,9 @@ ctx-doctor ablate [file]
   --concurrency <n>  parallel requests    (default: 4)
   --dry-run          print the plan and cost, call nothing
   --yes              actually run it
+  --check            one minimal live call to verify the wire format
+  --calibrate        measure the token estimator against the API's own count
+  --no-suffix        do not append the "answer only" instruction
   --out <file>       write the full run record as JSON
 ```
 
@@ -204,13 +220,25 @@ Exit code is `1` when something at or above `--fail-on` is found, `0` otherwise,
 
 ## Where the numbers come from
 
-**Token counts are estimated, not exact.** This package ships no tokenizer:
-every vendor's BPE vocabulary differs, and a linter that needs a multi-megabyte
-wasm blob does not get run in CI. The estimator models word, number and
-punctuation behaviour directly and lands within roughly ±15% on prose-heavy
-markdown, over-estimating on dense code fences. For an exact figure, use your
-vendor's token-counting endpoint; this tool's job is to tell you whether a file
-is 300 tokens or 3,000.
+**Token counts are estimated, not exact, and the error bar is yours to
+measure.** This package ships no tokenizer: every vendor's BPE vocabulary
+differs, and a linter that needs a multi-megabyte wasm blob does not get run in
+CI. The estimator models word, number and punctuation behaviour directly, which
+should land within roughly ±15% on prose-heavy markdown and over-estimate on
+dense code fences — but that figure is derived from how BPE behaves, not
+measured against your file. Measure it:
+
+```bash
+npx agentsmd-doctor ablate --calibrate   # counts via the API; counting is not billed
+```
+
+It prints the estimate, the API's own count, and the signed error, and says
+whether you landed inside ±15%. No sample is reproduced here, because the only
+honest number is the one from your file.
+
+If your file is code-dense enough to fall outside that band, the linter's
+dollar figures are off by the same proportion and you should say so when you
+quote them.
 
 **Prices are Anthropic first-party rates**, in `src/models.js`, per million
 tokens. Cached figures assume a cached read at 10% of the base input rate and
@@ -233,6 +261,10 @@ instruction file, and this tool will not invent one.
   of the question, not a bug.
 - **Small runs prove little.** At 8 trials per arm only large effects separate
   from zero. The report tells you how many trials you need.
+- **The harness is stub-tested, not live-tested.** Its tests drive a local
+  server, which proves this code's assumptions about the wire format, not the
+  API's agreement with them. `ablate --check` settles that in one call for a
+  fraction of a cent; run it before a long ablation.
 
 ## Use as a library
 

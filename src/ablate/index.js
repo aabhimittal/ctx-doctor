@@ -1,12 +1,18 @@
 import { complete, pool, requireApiKey } from './api.js';
 import { grade } from './grade.js';
 import { buildPlan, estimatePlan } from './plan.js';
-import { wilson, diffProportions, verdict, trialsNeeded } from './stats.js';
+import { wilson, diffProportions, verdict, trialsNeeded, twoProportionP, holm } from './stats.js';
 import { MODELS, DEFAULT_MODEL, DEFAULT_JUDGE_MODEL } from '../models.js';
 
 export { buildPlan, estimatePlan, trialsNeeded };
 
-const TASK_SUFFIX = '\n\nReply with the code or answer only. Do not explain what you did.';
+/**
+ * Appended to every task prompt so answers are comparable. It is itself an
+ * instruction, so it competes with any rule about explaining or commenting —
+ * override it with `suffix` in the task file, or `--no-suffix`, when a rule
+ * under test is about verbosity.
+ */
+export const DEFAULT_TASK_SUFFIX = '\n\nReply with the code or answer only. Do not explain what you did.';
 
 /**
  * Run the ablation.
@@ -19,6 +25,7 @@ const TASK_SUFFIX = '\n\nReply with the code or answer only. Do not explain what
 export async function runAblation({
   source, spec, trials = 8, model = DEFAULT_MODEL, judgeModel = DEFAULT_JUDGE_MODEL,
   concurrency = 4, maxTokens = 1024, apiKey = null, onProgress = () => {},
+  suffix = spec.suffix ?? DEFAULT_TASK_SUFFIX,
 }) {
   const key = apiKey ?? requireApiKey();
   const plan = buildPlan({ source, spec, trials });
@@ -40,7 +47,7 @@ export async function runAblation({
         apiKey: key,
         model,
         system: arm.system,
-        prompt: task.prompt + TASK_SUFFIX,
+        prompt: task.prompt + suffix,
         maxTokens,
         effort: MODELS[model]?.effort ? 'low' : undefined,
       });
@@ -91,6 +98,7 @@ export async function runAblation({
     model,
     judgeModel,
     trials,
+    suffix,
     results: aggregate(plan, graded),
     failures: outputs.filter((o) => o.error).map((o) => ({ ...o.cell, error: o.error })),
   };
@@ -110,9 +118,19 @@ function aggregate(plan, graded) {
       with: { ...withArm, ...wilson(withArm.comply, withArm.n) },
       without: { ...withoutArm, ...wilson(withoutArm.comply, withoutArm.n) },
       diff,
-      verdict: verdict(diff),
     });
   }
+
+  // Every rule was tested against the same control arm, so this is a family of
+  // n tests, not n independent ones. Correct for that before calling anything
+  // significant.
+  const adjusted = holm(rows.map((r) => twoProportionP(r.with.comply, r.with.n, r.without.comply, r.without.n)));
+  rows.forEach((row, i) => {
+    row.p = adjusted[i].p;
+    row.adjustedP = adjusted[i].adjusted;
+    row.verdict = verdict(row.diff, { significant: adjusted[i].significant });
+  });
+
   // Loudest signal first, then the ones that measurably do nothing.
   const order = { harmful: 0, 'carries-weight': 1, inconclusive: 2, 'no-effect': 3 };
   rows.sort((a, b) => order[a.verdict] - order[b.verdict] || Math.abs(b.diff.delta) - Math.abs(a.diff.delta));

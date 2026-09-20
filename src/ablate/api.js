@@ -4,7 +4,8 @@
 const VERSION = '2023-06-01';
 // ANTHROPIC_BASE_URL is honoured so the harness can be pointed at a gateway,
 // a proxy, or — in this package's own tests — a local stub.
-const endpoint = () => `${(process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`;
+const base = () => (process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/$/, '');
+const endpoint = () => `${base()}/v1/messages`;
 const RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 export class ApiError extends Error {
@@ -96,4 +97,20 @@ export async function pool(items, limit, worker) {
   });
   await Promise.all(runners);
   return results;
+}
+
+/**
+ * Exact token count from the API, used by `ablate --calibrate` to measure the
+ * built-in estimator's error instead of asserting it. Counting is not billed.
+ */
+export async function countTokens({ apiKey, model, text, timeoutMs = 30000 }) {
+  const res = await fetch(`${base()}/v1/messages/count_tokens`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': VERSION },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: text }] }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => ''));
+  const json = await res.json();
+  return json.input_tokens;
 }

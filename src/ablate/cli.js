@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runAblation, buildPlan, estimatePlan, trialsNeeded } from './index.js';
+import { runAblation, buildPlan, estimatePlan, trialsNeeded, DEFAULT_TASK_SUFFIX } from './index.js';
+import { complete, countTokens, requireApiKey } from './api.js';
+import { estimateTokens } from '../tokens.js';
 import { formatAblation, ablationHeadline } from './report.js';
 import { makeStyle } from '../report.js';
 import { parseBlocks } from '../parse.js';
@@ -21,6 +23,9 @@ const HELP = `ctx-doctor ablate — measure whether each rule changes the model'
   This spends real money. The cost is printed first and nothing runs without --yes.
 
   Options
+    --check            make ONE minimal live call to verify the wire format, then exit
+    --calibrate        count this file's tokens via the API and report the
+                       estimator's real error (counting is not billed)
     --init             write a starter ctx-doctor.tasks.json and exit
     --root <dir>       repository root      (default: cwd)
     --tasks <file>     task file            (default: ctx-doctor.tasks.json)
@@ -31,6 +36,7 @@ const HELP = `ctx-doctor ablate — measure whether each rule changes the model'
     --max-tokens <n>   per answer           (default: 1024)
     --dry-run          print the plan and the cost estimate, call nothing
     --yes              actually run it
+    --no-suffix        do not append the "answer only" instruction to task prompts
     --out <file>       write the full run record as JSON
     --json             print the result as JSON
     --headline         print only the one-line summary
@@ -45,6 +51,7 @@ export async function ablateCommand(argv, { root: initialRoot = process.cwd() } 
     file: null, tasks: 'ctx-doctor.tasks.json', trials: 8, model: DEFAULT_MODEL,
     judgeModel: DEFAULT_JUDGE_MODEL, concurrency: 4, maxTokens: 1024,
     yes: false, dryRun: false, init: false, json: false, headline: false, out: null,
+    check: false, calibrate: false, suffix: undefined,
     color: process.stdout.isTTY && !process.env.NO_COLOR,
   };
 
@@ -54,6 +61,9 @@ export async function ablateCommand(argv, { root: initialRoot = process.cwd() } 
     switch (arg) {
       case '-h': case '--help': process.stdout.write(HELP); return 0;
       case '--root': root = path.resolve(next()); break;
+      case '--check': opts.check = true; break;
+      case '--calibrate': opts.calibrate = true; break;
+      case '--no-suffix': opts.suffix = ''; break;
       case '--init': opts.init = true; break;
       case '--tasks': opts.tasks = next(); break;
       case '--trials': opts.trials = Number(next()); break;
@@ -79,11 +89,15 @@ export async function ablateCommand(argv, { root: initialRoot = process.cwd() } 
   }
   if (!Number.isFinite(opts.trials) || opts.trials < 1) return die('--trials must be a positive integer');
 
+  if (opts.check) return liveCheck(opts, s);
+
   const file = opts.file ?? discoverTargets(root)[0];
   if (!file) return die('no instruction file found; pass one explicitly');
   const fullPath = path.resolve(root, file);
   if (!fs.existsSync(fullPath)) return die(`${file} not found`);
   const source = fs.readFileSync(fullPath, 'utf8');
+
+  if (opts.calibrate) return calibrate({ source, file, model: opts.model, style: s, json: opts.json });
 
   if (opts.init) {
     const target = path.resolve(root, opts.tasks);
@@ -139,6 +153,7 @@ export async function ablateCommand(argv, { root: initialRoot = process.cwd() } 
   const run = await runAblation({
     source,
     spec,
+    ...(opts.suffix === undefined ? {} : { suffix: opts.suffix }),
     trials: opts.trials,
     model: opts.model,
     judgeModel: opts.judgeModel,
@@ -163,6 +178,62 @@ export async function ablateCommand(argv, { root: initialRoot = process.cwd() } 
   else process.stdout.write(`${formatAblation(run, { color: opts.color })}\n`);
 
   return run.results.some((r) => r.verdict === 'harmful') ? 1 : 0;
+}
+
+/**
+ * One minimal live request. The rest of this file is exercised against a local
+ * stub, which proves our assumptions about the wire format, not Anthropic's.
+ * This is the cheapest possible way to find out they agree.
+ */
+async function liveCheck(opts, s) {
+  let key;
+  try {
+    key = requireApiKey();
+  } catch (err) {
+    process.stderr.write(`ctx-doctor ablate: ${err.message}\n`);
+    return 2;
+  }
+  process.stderr.write(s.gray(`checking ${opts.model} … (one call, a few tokens)\n`));
+  try {
+    const res = await complete({
+      apiKey: key, model: opts.model, system: 'Reply with the single word OK.',
+      prompt: 'Ready?', maxTokens: 16,
+      effort: MODELS[opts.model]?.effort ? 'low' : undefined,
+    });
+    process.stdout.write(`${s.green('ok')} ${opts.model} replied (${res.usage.input_tokens ?? '?'} in / ${res.usage.output_tokens ?? '?'} out)\n`);
+    return 0;
+  } catch (err) {
+    process.stderr.write(`${s.red('failed')} ${err.message}\n`);
+    return 1;
+  }
+}
+
+/** Measure the estimator instead of asserting its error bar. */
+async function calibrate({ source, file, model, style: s, json }) {
+  let key;
+  try {
+    key = requireApiKey();
+  } catch (err) {
+    process.stderr.write(`ctx-doctor ablate: ${err.message}\n`);
+    return 2;
+  }
+  const estimated = estimateTokens(source);
+  let actual;
+  try {
+    actual = await countTokens({ apiKey: key, model, text: source });
+  } catch (err) {
+    process.stderr.write(`${s.red('failed')} ${err.message}\n`);
+    return 1;
+  }
+  // count_tokens includes the message envelope; the estimator sees only text.
+  const errPct = ((estimated - actual) / actual) * 100;
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ file, model, estimated, actual, errorPct: Number(errPct.toFixed(1)) }, null, 2)}\n`);
+  } else {
+    process.stdout.write(`${file}  estimated ${estimated} · actual ${actual} (${model})\n`);
+    process.stdout.write(`${Math.abs(errPct) <= 15 ? s.green('within ±15%') : s.yellow('outside ±15%')}  ${errPct >= 0 ? '+' : ''}${errPct.toFixed(1)}%\n`);
+  }
+  return 0;
 }
 
 /** Starter task file: every bullet becomes a candidate rule, tasks are left to the author. */
